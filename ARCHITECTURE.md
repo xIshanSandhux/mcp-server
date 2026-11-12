@@ -1,11 +1,17 @@
 # LeetCode MCP Architecture - V1
 
+This project is a local LeetCode MCP server for two workflows:
+
+1. Context: provide Codex with accurate progress, submission, and problem data so it can decide what to solve next.
+2. Submission: submit the current solution from the IDE or command line and record the result.
+
 The project will use a lean Python modular monolith with a simple layered architecture and a service layer. It is intentionally smaller than a full hexagonal or enterprise architecture.
+The MCP server will not contain an AI recommendation engine; Codex owns the reasoning and study planning.
 
 ## Goals
 
-- Provide useful, explainable problem recommendations.
-- Keep planning logic independent from MCP, SQLite, and LeetCode-specific code.
+- Provide accurate, useful learning context to Codex.
+- Keep data collection and context-building independent from MCP, SQLite, and LeetCode-specific code.
 - Submit a solution explicitly from the IDE or CLI.
 - Record progress and submission history locally.
 - Make the important behavior easy to test.
@@ -17,6 +23,7 @@ The project will use a lean Python modular monolith with a simple layered archit
 - A web dashboard.
 - Automatic or background submissions.
 - A general-purpose AI coding agent.
+- Server-side AI recommendation or study-plan generation.
 - Microservices or a distributed architecture.
 - A large plugin system.
 
@@ -31,7 +38,7 @@ MCP and CLI interfaces
         v
 Application services
         |
-        +--> Planning logic and models
+        +--> Context building and models
         |
         +--> LeetCode client
         |
@@ -40,7 +47,7 @@ Application services
         +--> Workspace file reader
 ```
 
-The interfaces translate external requests into calls to application services. The services coordinate workflows. Planning logic contains the recommendation rules. Integrations handle external systems.
+The interfaces translate external requests into calls to application services. The services coordinate workflows. Context building summarizes facts for Codex. Integrations handle external systems.
 
 ## Project layout
 
@@ -54,7 +61,7 @@ mcp-server/
 │       ├── main.py
 │       ├── config.py
 │       ├── models.py
-│       ├── planning.py
+│       ├── context.py
 │       ├── services.py
 │       ├── leetcode_client.py
 │       ├── database.py
@@ -78,22 +85,23 @@ Defines the application's main data structures, such as:
 - `Problem`
 - `Submission`
 - `UserProgress`
-- `StudyPlan`
-- recommendation results
+- `LearningContext`
+- filtered candidate results
 
 Models should describe data and enforce basic validation. They should not make network calls or query the database.
 
-### `planning.py`
+### `context.py`
 
-Contains pure recommendation logic, including:
+Builds structured learning context for Codex, including:
 
-- topic-gap detection
-- difficulty progression
-- recent-attempt analysis
-- candidate scoring
-- recommendation explanations
+- solved and unsolved problems
+- recent submissions and failures
+- topic counts and activity
+- difficulty distribution
+- filtered candidate problems
+- user preferences and constraints
 
-This module should receive data and return decisions. It should not know about MCP, SQLite, or HTTP.
+This module summarizes facts and applies practical filters. It should not choose the next problem, generate a study plan, or make subjective recommendations. It should not know about MCP, SQLite, or HTTP.
 
 ### `services.py`
 
@@ -102,12 +110,12 @@ Contains application workflows that coordinate multiple pieces of the system.
 Examples:
 
 - synchronize LeetCode progress
-- recommend the next problems
-- build a study plan
+- build learning context for Codex
+- search and filter problems
 - submit the current solution
 - retrieve submission status
 
-Services answer: “How do we complete this workflow?” Planning logic answers: “What is the correct recommendation?”
+Services answer: “How do we complete this workflow?” Codex answers: “What should I solve next and why?”
 
 ### `leetcode_client.py`
 
@@ -165,30 +173,30 @@ Starts the application and wires together configuration, database access, the Le
 
 ## Main workflows
 
-### Planning workflow
+### Context workflow
 
 ```text
-Codex calls an MCP planning tool
+Codex calls an MCP context tool
         |
         v
 MCP validates the request
         |
         v
-Planning service loads progress and candidates
+Context service loads progress, submissions, and candidates
         |
         v
-Planning logic scores candidates
-        |
-        v
-MCP returns problems and explanations
+MCP returns structured facts to Codex
 ```
 
-Recommendations should explain why a problem was selected, for example:
+The server should return facts that allow Codex to reason, for example:
 
 ```text
-This problem is recommended because you have not practiced BFS recently,
-you solved two tree DFS problems, and its difficulty is a reasonable next step.
+You have solved 42 problems. Your recent topics were arrays and trees.
+You have not practiced graphs recently. Your recent medium-problem success
+rate is 60%. These 20 unsolved problems match the selected filters.
 ```
+
+Codex then decides which problem to recommend and explains why.
 
 ### Submission workflow
 
@@ -218,13 +226,13 @@ Submission must be explicit. The server should not submit code merely because a 
 
 ## MCP surface
 
-Potential planning tools:
+Potential context tools:
 
-- `get_user_progress`
+- `get_learning_context`
+- `get_progress`
 - `get_recent_submissions`
 - `search_problems`
-- `recommend_next_problems`
-- `build_study_plan`
+- `get_candidate_problems`
 - `sync_progress`
 
 Potential submission tools:
@@ -238,7 +246,6 @@ Potential resources:
 - `leetcode://progress`
 - `leetcode://problem/{slug}`
 - `leetcode://submissions/recent`
-- `leetcode://study-plan/current`
 
 ## Testing strategy
 
@@ -246,9 +253,9 @@ Potential resources:
 
 Test fast, isolated behavior:
 
-- recommendation scoring
-- topic-gap detection
-- difficulty progression
+- context aggregation
+- problem filtering
+- progress statistics
 - model validation
 - duplicate-submission detection
 
@@ -285,11 +292,12 @@ Real LeetCode submissions should remain manual or explicitly opt-in tests.
 ## Design principles
 
 1. Keep the architecture small until the code gives a reason to expand it.
-2. Keep planning logic independent and easy to test.
-3. Keep LeetCode-specific behavior in one integration module.
-4. Share application services between MCP and CLI/IDE interfaces.
-5. Prefer simple functions and modules before introducing abstractions.
-6. Add ports, repositories, background workers, or separate packages only when they solve a demonstrated problem.
+2. Let Codex own recommendations and study planning.
+3. Keep context building factual, deterministic, and easy to test.
+4. Keep LeetCode-specific behavior in one integration module.
+5. Share application services between MCP and CLI/IDE interfaces.
+6. Prefer simple functions and modules before introducing abstractions.
+7. Add ports, repositories, background workers, or separate packages only when they solve a demonstrated problem.
 
 ## Summary
 
@@ -298,8 +306,8 @@ The project is a lean Python modular monolith with a layered architecture:
 ```text
 MCP / CLI interfaces
     -> application services
-    -> planning and models
+    -> context and models
     -> LeetCode / SQLite / filesystem integrations
 ```
 
-This provides enough separation for testing and future growth without making a local personal tool unnecessarily complex.
+The MCP server provides data, context, and actions. Codex provides the recommendations, explanations, and study plans. This provides enough separation for testing and future growth without making a local personal tool unnecessarily complex.
