@@ -1,9 +1,10 @@
 # LeetCode MCP Architecture - V1
 
-This project is a local LeetCode MCP server for two workflows:
+This project is a local LeetCode MCP server for three workflows:
 
 1. Context: provide Codex with accurate progress, submission, and problem data so it can decide what to solve next.
-2. Submission: submit the current solution from the IDE or command line and record the result.
+2. Scaffolding: provide Codex with problem details so it can create a solution file and local tests.
+3. Submission: let Codex submit the current solution and record the result.
 
 The project will use a lean Python modular monolith with a simple layered architecture and a service layer. It is intentionally smaller than a full hexagonal or enterprise architecture.
 The MCP server will not contain an AI recommendation engine; Codex owns the reasoning and study planning.
@@ -40,6 +41,8 @@ Application services
         |
         +--> Context building and models
         |
+        +--> Problem details for scaffolding
+        |
         +--> LeetCode client
         |
         +--> SQLite database
@@ -47,7 +50,7 @@ Application services
         +--> Workspace file reader
 ```
 
-The interfaces translate external requests into calls to application services. The services coordinate workflows. Context building summarizes facts for Codex. Integrations handle external systems.
+The interfaces translate external requests into calls to application services. The services coordinate workflows. Context building summarizes facts for Codex. Problem details give Codex enough information to create solution and test files. Integrations handle external systems.
 
 ## Project layout
 
@@ -103,6 +106,17 @@ Builds structured learning context for Codex, including:
 
 This module summarizes facts and applies practical filters. It should not choose the next problem, generate a study plan, or make subjective recommendations. It should not know about MCP, SQLite, or HTTP.
 
+### Problem details and scaffolding
+
+The MCP server provides problem metadata through `get_problem_details`. Codex uses that information to create and edit files in the workspace, for example:
+
+```text
+solutions/two_sum.py
+tests/test_two_sum.py
+```
+
+The server does not generate the solution or own the test-writing workflow. It provides the function or class signature, examples, constraints, topics, difficulty, and problem identifier that Codex needs to create a useful scaffold.
+
 ### `services.py`
 
 Contains application workflows that coordinate multiple pieces of the system.
@@ -153,7 +167,7 @@ They should not contain recommendation rules or raw database queries.
 
 ### `cli.py`
 
-Provides optional command-line and IDE-facing commands, including submission of the current file. The CLI should call the same services as the MCP interface rather than duplicating submission logic.
+Provides an optional command-line fallback for actions such as submitting the current file. The primary submission interface is Codex calling the MCP tool. The CLI should call the same services as the MCP interface rather than duplicating submission logic.
 
 ### `config.py`
 
@@ -198,10 +212,36 @@ rate is 60%. These 20 unsolved problems match the selected filters.
 
 Codex then decides which problem to recommend and explains why.
 
+### Scaffolding workflow
+
+```text
+Codex selects or discusses a problem
+        |
+        v
+Codex calls get_problem_details
+        |
+        v
+MCP returns signature, examples, constraints, and metadata
+        |
+        v
+Codex creates the solution and test files in the workspace
+        |
+        v
+You edit the solution in Neovim
+```
+
+The MCP server provides problem information; Codex creates the files and owns the scaffolding decisions.
+
 ### Submission workflow
 
 ```text
-IDE or CLI requests submission
+You edit the solution in Neovim
+        |
+        v
+You tell Codex to submit the solution
+        |
+        v
+Codex calls submit_current_file
         |
         v
 Validate problem, language, and workspace path
@@ -233,6 +273,7 @@ Potential context tools:
 - `get_recent_submissions`
 - `search_problems`
 - `get_candidate_problems`
+- `get_problem_details`
 - `sync_progress`
 
 Potential submission tools:
@@ -310,4 +351,4 @@ MCP / CLI interfaces
     -> LeetCode / SQLite / filesystem integrations
 ```
 
-The MCP server provides data, context, and actions. Codex provides the recommendations, explanations, and study plans. This provides enough separation for testing and future growth without making a local personal tool unnecessarily complex.
+The MCP server provides data, context, problem details, and submission actions. Codex provides the recommendations, explanations, study plans, scaffolding, and submission requests. This provides enough separation for testing and future growth without making a local personal tool unnecessarily complex.
