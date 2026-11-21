@@ -1,16 +1,13 @@
 """MCP tools, resources, and prompts."""
 from mcp.server import MCPServer
 
-mcp = MCPServer("Demo")
+mcp = MCPServer("Leetcode MCP Server")
 
 
 @mcp.tool()
-def add(a: int, b: int) -> int:
-    """Add two numbers."""
-    return a + b
+async def problem_details(slug: str) -> int:
+    """
+    gives context of the leetcode problem for the given slug
+    """
+    return -1
 
-
-@mcp.resource("greeting://{name}")
-def greeting(name: str) -> str:
-    """Greet someone by name."""
-    return f"Hello, {name}!"
